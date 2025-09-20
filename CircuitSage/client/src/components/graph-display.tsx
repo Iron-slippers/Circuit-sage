@@ -4,10 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { BarChart3, Settings, Download } from "lucide-react"
-import { Formula } from "@shared/schema"
+import { BarChart3, Settings, Download, Variable } from "lucide-react"
+import { Formula, Constant } from "@shared/schema"
 import { evaluate } from "mathjs"
 import Plot from "react-plotly.js"
+import { useQuery } from "@tanstack/react-query"
 
 interface GraphDisplayProps {
   formulas?: Formula[]
@@ -23,12 +24,56 @@ export function GraphDisplay({ formulas = [] }: GraphDisplayProps) {
   const [fixedValues, setFixedValues] = useState<Record<string, number>>({})
   const [plotData, setPlotData] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [detectedConstants, setDetectedConstants] = useState<Constant[]>([])
+
+  // Fetch constants from backend
+  const { data: constants = [] } = useQuery<Constant[]>({
+    queryKey: ['/api/constants'],
+  })
+
+  // Extract the output variable from formula description or name
+  const getOutputVariable = (formula: Formula): string => {
+    // Try to find output variable in description (e.g., "V = I × R" -> "V")
+    const descMatch = formula.description?.match(/([A-Z]|τ|π|\w+)\s*=/)
+    if (descMatch) {
+      return descMatch[1].trim()
+    }
+    
+    // Try to extract from name (e.g., "Ohm's Law (Voltage)" -> "V")
+    if (formula.name?.toLowerCase().includes('voltage')) return 'V'
+    if (formula.name?.toLowerCase().includes('current')) return 'I'
+    if (formula.name?.toLowerCase().includes('power')) return 'P'
+    if (formula.name?.toLowerCase().includes('resistance')) return 'R'
+    if (formula.name?.toLowerCase().includes('time')) return 'τ'
+    
+    return 'Result'
+  }
+
+  // Detect constants used in the current formula
+  const detectConstantsInFormula = (formula: Formula) => {
+    if (!formula.formula || !constants.length) {
+      setDetectedConstants([])
+      return
+    }
+
+    const detected = constants.filter(constant => 
+      formula.formula.includes(constant.symbol)
+    )
+    setDetectedConstants(detected)
+  }
+
+  // Update detected constants when formula changes
+  useEffect(() => {
+    if (selectedFormula) {
+      detectConstantsInFormula(selectedFormula)
+    }
+  }, [selectedFormula, constants])
 
   const handleFormulaSelect = (formulaId: string) => {
     const formula = formulas.find(f => f.id === formulaId)
     setSelectedFormula(formula || null)
     setXVariable("")
-    setYVariable("")
+    setYVariable(formula ? getOutputVariable(formula) : "")
     setFixedValues({})
     setPlotData([])
     setError(null)
@@ -37,6 +82,16 @@ export function GraphDisplay({ formulas = [] }: GraphDisplayProps) {
 
   const generateGraph = () => {
     if (!selectedFormula || !xVariable || !yVariable) return
+
+    // Input validation
+    if (xMin >= xMax) {
+      setError('X Min must be less than X Max')
+      return
+    }
+    if (points < 2) {
+      setError('Number of points must be at least 2')
+      return
+    }
 
     try {
       const step = (xMax - xMin) / points
@@ -47,14 +102,27 @@ export function GraphDisplay({ formulas = [] }: GraphDisplayProps) {
         const x = xMin + i * step
         const inputs = { ...fixedValues, [xVariable]: x }
         
+        // Add constant values automatically
+        detectedConstants.forEach(constant => {
+          inputs[constant.symbol] = constant.value
+        })
+        
         try {
           const result = evaluate(selectedFormula.formula, inputs)
-          xValues.push(x)
-          yValues.push(result)
+          if (isFinite(result)) {
+            xValues.push(x)
+            yValues.push(result)
+          }
         } catch (evalError) {
           // Skip invalid points
           continue
         }
+      }
+
+      if (yValues.length === 0) {
+        setError('No valid points produced — please check fixed values and ranges.')
+        setPlotData([])
+        return
       }
 
       const trace = {
@@ -89,7 +157,9 @@ export function GraphDisplay({ formulas = [] }: GraphDisplayProps) {
 
   const getOtherVariables = () => {
     if (!selectedFormula) return []
-    return selectedFormula.variables?.filter(v => v !== xVariable && v !== yVariable) || []
+    return selectedFormula.variables?.filter(v => 
+      v !== xVariable && !detectedConstants.some(c => c.symbol === v)
+    ) || []
   }
 
   const handleDownload = () => {
@@ -145,7 +215,7 @@ export function GraphDisplay({ formulas = [] }: GraphDisplayProps) {
                 <div className="space-y-2">
                   <Label>Y-Axis (Result)</Label>
                   <Input 
-                    value="Formula Result" 
+                    value={yVariable || "Formula Result"} 
                     disabled 
                     className="bg-muted"
                   />
@@ -183,6 +253,25 @@ export function GraphDisplay({ formulas = [] }: GraphDisplayProps) {
                       />
                     </div>
                   </div>
+
+                  {detectedConstants.length > 0 && (
+                    <Card className="bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+                      <CardContent className="pt-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Variable className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-medium text-blue-600">Auto-detected Constants:</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {detectedConstants.map((constant) => (
+                            <div key={constant.id} className="text-xs">
+                              <span className="font-mono font-bold">{constant.symbol}</span> = {constant.value} {constant.unit}
+                              <div className="text-muted-foreground">{constant.name}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {getOtherVariables().length > 0 && (
                     <div className="space-y-2">

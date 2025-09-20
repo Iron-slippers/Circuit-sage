@@ -35,6 +35,35 @@ export function FormulaEditor({ formula, onSave, onCancel }: FormulaEditorProps)
   const [newVariable, setNewVariable] = useState("")
   const [preview, setPreview] = useState(false)
 
+  // Auto-detect variables from formula text
+  const autoDetectVariables = (formula: string): string[] => {
+    // Remove common mathematical functions and operators
+    const cleanFormula = formula
+      .replace(/\b(sin|cos|tan|log|ln|exp|sqrt|abs|floor|ceil|round|max|min)\s*\(/g, '')
+      .replace(/[+\-*/()=\s0-9.,]/g, ' ')
+    
+    // Extract potential variable names (letters, possibly with numbers/subscripts)
+    const matches = cleanFormula.match(/[a-zA-Z][a-zA-Z0-9_]*/g) || []
+    
+    // Filter out common constants and functions
+    const excludeList = ['pi', 'e', 'tau', 'true', 'false', 'undefined', 'null']
+    const detectedVars = [...new Set(matches)].filter(v => !excludeList.includes(v.toLowerCase()))
+    
+    return detectedVars
+  }
+
+  const handleFormulaChange = (value: string) => {
+    setFormulaText(value)
+    
+    // Auto-detect variables when formula changes
+    const detected = autoDetectVariables(value)
+    const newVars = detected.filter(v => !variables.includes(v))
+    
+    if (newVars.length > 0) {
+      setVariables([...variables, ...newVars])
+    }
+  }
+
   const addVariable = () => {
     if (newVariable.trim() && !variables.includes(newVariable.trim())) {
       setVariables([...variables, newVariable.trim()])
@@ -119,7 +148,7 @@ export function FormulaEditor({ formula, onSave, onCancel }: FormulaEditorProps)
           <Textarea
             id="formula"
             value={formulaText}
-            onChange={(e) => setFormulaText(e.target.value)}
+            onChange={(e) => handleFormulaChange(e.target.value)}
             placeholder="e.g., V = I * R"
             className="font-mono"
             data-testid="input-formula-expression"
