@@ -3,16 +3,32 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FormulaEditor } from "@/components/formula-editor"
-import { Plus, Edit, Trash2, Eye, EyeOff } from "lucide-react"
+import { Plus, Edit, Trash2, Eye, EyeOff, Search, Filter } from "lucide-react"
 import { Formula } from "@shared/schema"
 import { apiRequest } from "@/lib/queryClient"
+
+const categories = [
+  "Basic Electronics",
+  "AC Analysis", 
+  "DC Analysis",
+  "Power Calculations",
+  "Filters",
+  "Amplifiers",
+  "Digital Logic",
+  "Other"
+]
 
 export default function FormulasPage() {
   const queryClient = useQueryClient()
   const [showEditor, setShowEditor] = useState(false)
   const [editingFormula, setEditingFormula] = useState<Formula | null>(null)
   const [showFormulas, setShowFormulas] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState<string>("All")
 
   // Fetch formulas from backend
   const { data: formulas = [], isLoading } = useQuery<Formula[]>({
@@ -90,6 +106,13 @@ export default function FormulasPage() {
     setShowEditor(true)
   }
 
+  // Filter formulas based on search term and category
+  const filteredFormulas = formulas.filter(formula => {
+    const matchesSearch = formula.name.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesCategory = selectedCategory === "All" || formula.category === selectedCategory
+    return matchesSearch && matchesCategory
+  })
+
   return (
     <div className="container mx-auto py-6 px-4 space-y-6">
       {showEditor ? (
@@ -126,17 +149,80 @@ export default function FormulasPage() {
             </CardHeader>
             {showFormulas && (
               <CardContent>
-                {formulas.length === 0 ? (
+                <div className="space-y-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="search">Search by name</Label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          id="search"
+                          placeholder="Search formulas..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-10"
+                          data-testid="input-search-formulas"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="category-filter">Filter by category</Label>
+                      <div className="relative">
+                        <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
+                        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                          <SelectTrigger id="category-filter" className="pl-10" data-testid="select-category-filter">
+                            <SelectValue placeholder="All categories" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="All">All categories</SelectItem>
+                            {categories.map((category) => (
+                              <SelectItem key={category} value={category}>{category}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                  {(searchTerm || selectedCategory !== "All") && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span>Showing {filteredFormulas.length} of {formulas.length} formulas</span>
+                      {(searchTerm || selectedCategory !== "All") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSearchTerm("")
+                            setSelectedCategory("All")
+                          }}
+                          className="h-auto p-1 text-xs"
+                        >
+                          Clear filters
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {filteredFormulas.length === 0 ? (
                   <Card className="border-dashed">
                     <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-                      <Plus className="h-8 w-8 text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">No formulas created yet</p>
-                      <p className="text-sm text-muted-foreground">Create your first formula to get started</p>
+                      {formulas.length === 0 ? (
+                        <>
+                          <Plus className="h-8 w-8 text-muted-foreground mb-2" />
+                          <p className="text-muted-foreground">No formulas created yet</p>
+                          <p className="text-sm text-muted-foreground">Create your first formula to get started</p>
+                        </>
+                      ) : (
+                        <>
+                          <Search className="h-8 w-8 text-muted-foreground mb-2" />
+                          <p className="text-muted-foreground">No formulas match your search</p>
+                          <p className="text-sm text-muted-foreground">Try adjusting your search term or category filter</p>
+                        </>
+                      )}
                     </CardContent>
                   </Card>
                 ) : (
                   <div className="grid gap-4">
-                    {formulas.map((formula) => (
+                    {filteredFormulas.map((formula) => (
                       <Card key={formula.id}>
                         <CardContent className="pt-4">
                           <div className="flex items-start justify-between">

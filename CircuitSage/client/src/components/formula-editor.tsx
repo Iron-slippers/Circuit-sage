@@ -6,8 +6,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Plus, X, Save, Eye } from "lucide-react"
-import { Formula } from "@shared/schema"
+import { Plus, X, Save, Eye, Variable } from "lucide-react"
+import { Formula, Constant } from "@shared/schema"
+import { useQuery } from "@tanstack/react-query"
 
 interface FormulaEditorProps {
   formula?: Formula
@@ -34,6 +35,12 @@ export function FormulaEditor({ formula, onSave, onCancel }: FormulaEditorProps)
   const [variables, setVariables] = useState<string[]>(formula?.variables || [])
   const [newVariable, setNewVariable] = useState("")
   const [preview, setPreview] = useState(false)
+  const [selectedConstants, setSelectedConstants] = useState<Record<string, string>>({})
+
+  // Fetch constants from backend
+  const { data: constants = [] } = useQuery<Constant[]>({
+    queryKey: ['/api/constants'],
+  })
 
   // Auto-detect variables from formula text
   const autoDetectVariables = (formula: string): string[] => {
@@ -50,6 +57,26 @@ export function FormulaEditor({ formula, onSave, onCancel }: FormulaEditorProps)
     const detectedVars = [...new Set(matches)].filter(v => !excludeList.includes(v.toLowerCase()))
     
     return detectedVars
+  }
+
+  // Get constants that might be in the formula
+  const getPotentialConstants = (): { symbol: string, options: Constant[] }[] => {
+    const detectedSymbols = autoDetectVariables(formulaText)
+    const constantGroups: { symbol: string, options: Constant[] }[] = []
+    
+    detectedSymbols.forEach(symbol => {
+      const matchingConstants = constants.filter(c => c.symbol === symbol)
+      if (matchingConstants.length > 0) {
+        constantGroups.push({ symbol, options: matchingConstants })
+      }
+    })
+    
+    return constantGroups
+  }
+
+  // Handle constant selection
+  const handleConstantSelect = (symbol: string, constantId: string) => {
+    setSelectedConstants(prev => ({ ...prev, [symbol]: constantId }))
   }
 
   const handleFormulaChange = (value: string) => {
@@ -165,6 +192,46 @@ export function FormulaEditor({ formula, onSave, onCancel }: FormulaEditorProps)
             data-testid="input-formula-description"
           />
         </div>
+
+        {getPotentialConstants().length > 0 && (
+          <Card className="bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Variable className="h-4 w-4 text-green-600" />
+                <span className="text-sm font-medium text-green-600">Constants Selection</span>
+              </div>
+              <div className="space-y-3">
+                {getPotentialConstants().map(({ symbol, options }) => (
+                  <div key={symbol} className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      Symbol "{symbol}" ({options.length} options available)
+                    </Label>
+                    <Select 
+                      value={selectedConstants[symbol] || ''} 
+                      onValueChange={(value) => handleConstantSelect(symbol, value)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={`Choose constant for "${symbol}"`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {options.map((constant) => (
+                          <SelectItem key={constant.id} value={constant.id!}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{constant.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {constant.symbol} = {constant.value} {constant.unit}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="space-y-2">
           <Label>Variables</Label>

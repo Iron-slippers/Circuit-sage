@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Calculator as CalculatorIcon, Play, History, Lightbulb, Variable } from "lucide-react"
+import { Calculator as CalculatorIcon, Play, History, Lightbulb, Variable, Search, Filter } from "lucide-react"
 import { Formula, Constant } from "@shared/schema"
 import { evaluate } from "mathjs"
 import { useQuery } from "@tanstack/react-query"
@@ -21,6 +21,8 @@ export function Calculator({ formulas = [], onCalculate }: CalculatorProps) {
   const [result, setResult] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [detectedConstants, setDetectedConstants] = useState<Constant[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState<string>("All")
 
   // Fetch constants from backend
   const { data: constants = [] } = useQuery<Constant[]>({
@@ -95,16 +97,16 @@ export function Calculator({ formulas = [], onCalculate }: CalculatorProps) {
         numericInputs[key] = num
       }
 
-      // Add constant values automatically
+      // Add detected constant values automatically for calculation
       detectedConstants.forEach(constant => {
         numericInputs[constant.symbol] = constant.value
       })
 
-      // Check if all variables have values (excluding constants)
+      // Check if all variables have values (excluding detected constants)
       const requiredVars = selectedFormula.variables?.filter(v => 
         !detectedConstants.some(c => c.symbol === v)
       ) || []
-      const missingVars = requiredVars.filter(v => !(v in numericInputs))
+      const missingVars = requiredVars.filter(v => !(v in inputs))
       
       if (missingVars.length > 0) {
         setError(`Missing values for: ${missingVars.join(', ')}`)
@@ -131,6 +133,16 @@ export function Calculator({ formulas = [], onCalculate }: CalculatorProps) {
     }
   }
 
+  // Get unique categories from formulas
+  const availableCategories = Array.from(new Set(formulas.map(f => f.category))).filter(Boolean).sort()
+
+  // Filter formulas based on search term and category
+  const filteredFormulas = formulas.filter(formula => {
+    const matchesSearch = formula.name.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesCategory = selectedCategory === "All" || formula.category === selectedCategory
+    return matchesSearch && matchesCategory
+  })
+
   return (
     <div className="space-y-6">
       <Card>
@@ -144,23 +156,105 @@ export function Calculator({ formulas = [], onCalculate }: CalculatorProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="calc-search">Search and select formula</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="calc-search"
+                    placeholder="Search formulas..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                    data-testid="input-calc-search-formulas"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="calc-category-filter">Filter by category</Label>
+                <div className="relative">
+                  <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
+                  <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                    <SelectTrigger id="calc-category-filter" className="pl-10" data-testid="select-calc-category-filter">
+                      <SelectValue placeholder="All categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All categories</SelectItem>
+                      {availableCategories.map((category) => (
+                        <SelectItem key={category} value={category}>{category}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            {(searchTerm || selectedCategory !== "All") && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Showing {filteredFormulas.length} of {formulas.length} formulas</span>
+                {(searchTerm || selectedCategory !== "All") && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSearchTerm("")
+                      setSelectedCategory("All")
+                    }}
+                    className="h-auto p-1 text-xs"
+                  >
+                    Clear filters
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Formula List */}
           <div className="space-y-2">
-            <Label htmlFor="formula-select">Select Formula</Label>
-            <Select onValueChange={handleFormulaSelect}>
-              <SelectTrigger data-testid="select-formula">
-                <SelectValue placeholder="Choose a formula to calculate" />
-              </SelectTrigger>
-              <SelectContent>
-                {formulas.map((formula) => (
-                  <SelectItem key={formula.id} value={formula.id!}>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{formula.name}</span>
-                      <span className="text-sm text-muted-foreground">{formula.category}</span>
+            <Label>Available Formulas</Label>
+            <div className="border rounded-md max-h-64 overflow-auto bg-white">
+              {filteredFormulas.length > 0 ? (
+                filteredFormulas.map((formula) => (
+                  <button
+                    key={formula.id}
+                    type="button"
+                    onClick={() => {
+                      handleFormulaSelect(formula.id!)
+                      setSearchTerm(formula.name)
+                    }}
+                    className={`w-full px-4 py-3 text-left border-b border-gray-100 last:border-b-0 focus:outline-none transition-colors bg-[#1f242e] ${
+                      selectedFormula?.id === formula.id 
+                        ? 'bg-[#2a2f3a] border-l-4 border-l-blue-500' 
+                        : 'hover:bg-[#2a2f3a] focus:bg-[#2a2f3a]'
+                    }`}
+                    data-testid={`formula-option-${formula.id}`}
+                  >
+                    <div className="flex flex-col space-y-1">
+                      <span className="font-medium text-sm">{formula.name}</span>
+                      <span className="text-xs text-muted-foreground">{formula.category}</span>
+                      <span className="font-mono text-[18px] text-[#ebf2f2]">{formula.formula}</span>
                     </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  </button>
+                ))
+              ) : (
+                <div className="px-4 py-8 text-center text-muted-foreground">
+                  {formulas.length === 0 ? (
+                    <>
+                      <CalculatorIcon className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p>No formulas available</p>
+                      <p className="text-xs">Create your first formula to start calculating</p>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                      <p>No formulas match your search</p>
+                      <p className="text-xs">Try adjusting your search term or category filter</p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {selectedFormula && (
@@ -250,15 +344,6 @@ export function Calculator({ formulas = [], onCalculate }: CalculatorProps) {
             </>
           )}
 
-          {formulas.length === 0 && (
-            <Card className="border-dashed">
-              <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-                <Lightbulb className="h-8 w-8 text-muted-foreground mb-2" />
-                <p className="text-muted-foreground">No formulas available</p>
-                <p className="text-sm text-muted-foreground">Create your first formula to start calculating</p>
-              </CardContent>
-            </Card>
-          )}
         </CardContent>
       </Card>
     </div>
